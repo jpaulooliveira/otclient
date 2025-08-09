@@ -5,7 +5,7 @@
 
 TextureAtlas::TextureAtlas(Fw::TextureAtlasType type, int size, bool smoothSupport) :
     m_type(type),
-    m_size({ std::min<int>(size, 16384) }) {
+    m_size({ std::min<int>(size, 8192) }) {
     createNewLayer(false);
     if (smoothSupport)
         createNewLayer(true);
@@ -87,8 +87,9 @@ void TextureAtlas::createNewLayer(bool smooth) {
     fbo->setAutoResetState(true);
     fbo->getTexture()->setSmooth(smooth);
 
+    FreeRegion newRegion = { 0, 0, m_size.width(), m_size.height(), static_cast<int>(m_filterGroups[smooth].layers.size()) };
+
     m_filterGroups[smooth].layers.emplace_back(std::move(fbo));
-    FreeRegion newRegion = { 0, 0, m_size.width(), m_size.height(), static_cast<int>(m_filterGroups[smooth].layers.size()) - 1 };
     m_filterGroups[smooth].freeRegions.insert(newRegion);
     m_filterGroups[smooth].freeRegionsBySize[m_size.width() * m_size.height()].insert(newRegion);
 }
