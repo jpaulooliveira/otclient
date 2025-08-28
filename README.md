@@ -574,12 +574,23 @@ Found a bug? Please create an issue in our **[bug tracker](https://github.com/me
 
 ---
 
-## ©️ License
-OTClient is made available under the **MIT License** — you are free to use it for commercial, non-commercial, closed or open projects.  
-See: [MIT License](http://opensource.org/licenses/MIT)
+| Protocol / version   	| Description                 	| Required Feature                                    	| Compatibility 	|
+|---------------------	|-----------------------------	|-----------------------------------------------------	|---------------	|
+| TFS <br> (7.72)      	| Downgrade nekiro /<br> Nostalrius 	|                  [force-new-walking-formula: true](https://github.com/mehah/otclient/blob/cf7badda978de88cb3724615688e3d9da2ff4207/data/setup.otml#L21)        <br>   [item-ticks-per-frame: 500](https://github.com/mehah/otclient/blob/cf7badda978de88cb3724615688e3d9da2ff4207/data/setup.otml#L32)                          	| ✅            	|
+| TFS 0.4 <br> (8.6)       	| Fir3element                	|  [item-ticks-per-frame: 500](https://github.com/mehah/otclient/blob/cf7badda978de88cb3724615688e3d9da2ff4207/data/setup.otml#L32)                                 	| ✅             	|
+| TFS 1.5  <br> (8.0 / 8.60) 	| Downgrade nekiro / <br>MillhioreBT     	| [force-new-walking-formula: true](https://github.com/mehah/otclient/blob/cf7badda978de88cb3724615688e3d9da2ff4207/data/setup.otml#L21)        <br>   [item-ticks-per-frame: 500](https://github.com/mehah/otclient/blob/cf7badda978de88cb3724615688e3d9da2ff4207/data/setup.otml#L32)        	| ✅             	|
+| TFS 1.4.2 <br> (10.98)   	| Release Otland              	|                                              	| ✅             	|
+| TFS 1.6  <br>(13.10)     	| Main repo <br> otland (2024)     	| [See wiki](https://github.com/mehah/otclient/wiki/Tutorial-to-Use-OTC-in-TFS-main) 	| ✅             	|
+| Canary  <br> (13.21 / 13.32 / 13.40)       	| OpenTibiaBr               	| [Assets , Enable HTTP login and port 80](https://docs.opentibiabr.com/opentibiabr/projects/otclient-redemption#how-to-connect-on-canary-with-otclient-redemption)            	| ✅             	|
+| Canary <br> (14.00 ~ 14.12)        	| OpenTibiaBr              	| [Assets ,  Enable HTTP login and port 80](https://docs.opentibiabr.com/opentibiabr/projects/otclient-redemption#how-to-connect-on-canary-with-otclient-redemption)           	| ✅             	|
+| Canary <br> (15.00)        	| OpenTibiaBr              	| [Assets ,  Enable HTTP login and port 80](https://docs.opentibiabr.com/opentibiabr/projects/otclient-redemption#how-to-connect-on-canary-with-otclient-redemption)           	| ✅             	|
 
----
 
-## ❤️ Contributors
-If you are interested in supporting the project, donate here:  
-**[PayPal](https://www.paypal.com/donate/?business=CV9D5JF8E46LY&no_recurring=0&item_name=Thank+you+very+much+for+your+donation.&currency_code=BRL)**
+## <a name="license">©️ License</a>
+
+Otclient is made available under the MIT License [MIT License](http://opensource.org/licenses/MIT) .thus this means that you are free to do whatever you want, commercial, non-commercial, closed or open
+
+## <a name="contributors">❤️ Contributors</a>
+
+If you are interested in supporting the project, go to this [link](https://www.paypal.com/donate/?business=CV9D5JF8E46LY&no_recurring=0&item_name=Thank+you+very+much+for+your+donation.&currency_code=BRL), any value is great help, thank you.
+
