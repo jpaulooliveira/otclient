@@ -266,6 +266,7 @@ struct ImbuementTrackerItem
     ImbuementTrackerItem(const uint8_t slot) : slot(slot) {}
 
     uint8_t slot;
+    uint8_t totalSlots = 0;
     ItemPtr item;
     std::map<uint8_t, ImbuementSlot> slots;
 };
@@ -301,6 +302,7 @@ struct MarketOffer
     std::string playerName;
     uint8_t state = 0;
     uint16_t var = 0;
+    uint8_t itemTier = 0;
 };
 
 struct Light
@@ -324,9 +326,9 @@ public:
     void exportImage(const std::string& fileName);
 #endif
 
-    void draw(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const Color& color, bool drawThings = true, const LightViewPtr& lightView = nullptr, const DrawConductor& conductor = DEFAULT_DRAW_CONDUCTOR);
+    void draw(const Point& dest, int layer, int xPattern, int yPattern, int zPattern, int animationPhase, const Color& color, bool drawThings = true, const LightViewPtr& lightView = nullptr);
 
-    void drawWithFrameBuffer(const TexturePtr& texture, const Rect& screenRect, const Rect& textureRect, const Color& color, const DrawConductor& conductor);
+    void drawWithFrameBuffer(const TexturePtr& texture, const Rect& screenRect, const Rect& textureRect, const Color& color);
 
     uint16_t getId() { return m_id; }
     ThingCategory getCategory() { return m_category; }
@@ -439,8 +441,9 @@ public:
     bool isPodium() { return (m_flags & ThingFlagAttrPodium); }
     bool isTopEffect() { return (m_flags & ThingFlagAttrTopEffect); }
     bool hasAction() { return (m_flags & ThingFlagAttrDefaultAction); }
-    bool isOpaque() { if (m_opaque == -1) getTexture(0); return m_opaque == 1; }
+    bool isOpaque() { return m_opaque == 1; }
     bool isDecoKit() { return (m_flags & ThingFlagAttrDecoKit); }
+    bool isLoading() const { return m_loading.load(std::memory_order_acquire); }
 
     bool isItem() const { return m_category == ThingCategoryItem; }
     bool isEffect() const { return m_category == ThingCategoryEffect; }

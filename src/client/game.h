@@ -532,7 +532,6 @@ struct CyclopediaCharacterDefenceStats
     std::vector<ElementalResistance> resistances;
 };
 
-// In a header file (e.g., src/client/luavaluecasts_client.h)
 struct CyclopediaCharacterMiscStats
 {
     double momentumTotal;
@@ -561,7 +560,27 @@ struct CyclopediaCharacterMiscStats
     std::vector<Concoction> concoctions;
 };
 
-int push_luavalue(const CyclopediaCharacterMiscStats& data);
+struct ForgeItemInfo
+{
+    uint16_t id{ 0 };
+    uint8_t tier{ 0 };
+    uint16_t count{ 0 };
+};
+
+struct ForgeTransferData
+{
+    std::vector<ForgeItemInfo> donors;
+    std::vector<ForgeItemInfo> receivers;
+};
+
+struct ForgeOpenData
+{
+    std::vector<ForgeItemInfo> fusionItems;
+    std::vector<std::vector<ForgeItemInfo>> convergenceFusion;
+    std::vector<ForgeTransferData> transfers;
+    std::vector<ForgeTransferData> convergenceTransfers;
+    uint16_t dustLevel{ 0 };
+};
 
 //@bindsingleton g_game
 class Game

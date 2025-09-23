@@ -39,6 +39,7 @@ function init()
                                                                    '/images/options/button_skills', toggle, false, 1)
     skillsButton:setOn(true)
     skillsWindow = g_ui.loadUI('skills')
+    skillsWindow:setContentMinimumHeight(80)
 
     Keybind.new("Windows", "Show/hide skills windows", "Alt+S", "")
     Keybind.bind("Windows", "Show/hide skills windows", {
@@ -53,6 +54,7 @@ function init()
         skillSettings = {}
     end
 
+    setupUIButtons()
     refresh()
     skillsWindow:setup()
     if g_game.isOnline() then
@@ -98,6 +100,417 @@ function terminate()
 
     skillsWindow = nil
     skillsButton = nil
+end
+
+local SKILL_GROUPS = {
+    offence = {
+        'skillId7', 'skillId8', 'skillId9', 'skillId10', 'skillId11', 'skillId12', 
+        'skillId13', 'skillId14', 'skillId15', 'skillId16', 'separadorOnOffenceInfoChange',
+        'damageHealing', 'attackValue', 'convertedDamage', 'convertedElement',
+        'criticalHit', 'lifeLeech', 'manaLeech', 'criticalChance', 'criticalExtraDamage', 'onslaught'
+    },
+    defence = {
+        'physicalResist', 'fireResist', 'earthResist', 'energyResist', 'IceResist', 
+        'HolyResist', 'deathResist', 'HealingResist', 'drowResist', 'lifedrainResist', 
+        'manadRainResist', 'defenceValue', 'armorValue', 'mitigation', 'dodge', 
+        'damageReflection', 'separadorOnDefenseInfoChange'
+    },
+    misc = {
+        'momentum', 'transcendence', 'amplification', 'separadorOnForgeBonusesChange'
+    },
+    individual = {
+        'level', 'stamina', 'offlineTraining', 'magiclevel', 'skillId0', 'skillId1', 
+        'skillId2', 'skillId3', 'skillId4', 'skillId5', 'skillId6'
+    }
+}
+
+local function setSkillGroupVisibility(groupName, visible)
+    local skills = SKILL_GROUPS[groupName]
+    if not skills then return end
+    
+    for _, skillId in pairs(skills) do
+        local skill = skillsWindow:recursiveGetChildById(skillId)
+        if skill then
+            skill:setVisible(visible)
+        end
+    end
+end
+
+local function areStatsVisible(groupName)
+    if g_game.getClientVersion() < 1412 and groupName ~= 'individual' then
+        return false
+    end
+    
+    local skills = SKILL_GROUPS[groupName]
+    if not skills then 
+        return false
+    end
+    
+    for _, skillId in pairs(skills) do
+        local skill = skillsWindow:recursiveGetChildById(skillId)
+        if skill and skill:isVisible() then
+            return true
+        end
+    end
+    return false
+end
+
+local function refreshGroupData(groupName)
+    -- When stats are made visible, apply cached data to the UI elements
+    local player = g_game.getLocalPlayer()
+    if not player then
+        return
+    end
+    
+    scheduleEvent(function()
+        if groupName == 'offence' then
+            -- Apply cached offence data
+            onFlatDamageHealingChange(player, statsCache.flatDamageHealing)
+            onAttackInfoChange(player, statsCache.attackValue, statsCache.attackElement)
+            onConvertedDamageChange(player, statsCache.convertedDamage, statsCache.convertedElement)
+            onImbuementsChange(player, statsCache.lifeLeech, statsCache.manaLeech, statsCache.critChance, statsCache.critDamage, statsCache.onslaught)
+        elseif groupName == 'defence' then
+            -- Apply cached defence data
+            onDefenseInfoChange(player, statsCache.defense, statsCache.armor, statsCache.mitigation, statsCache.dodge, statsCache.damageReflection)
+            onCombatAbsorbValuesChange(player, statsCache.combatAbsorbValues)
+        elseif groupName == 'misc' then
+            -- Apply cached misc data
+            onForgeBonusesChange(player, statsCache.momentum, statsCache.transcendence, statsCache.amplification)
+        end
+    end, 50)
+end
+
+local function toggleGroupVisibility(groupName)
+    if g_game.getClientVersion() < 1412 and groupName ~= 'individual' then
+        return
+    end
+    
+    local shouldShow = not areStatsVisible(groupName)
+    setSkillGroupVisibility(groupName, shouldShow)
+    
+    -- If we're showing stats, refresh the data
+    if shouldShow then
+        refreshGroupData(groupName)
+    end
+    
+    local char = g_game.getCharacterName()
+    if not skillSettings[char] then
+        skillSettings[char] = {}
+    end
+    skillSettings[char][groupName .. 'Stats_visible'] = shouldShow
+    g_settings.setNode('skills-hide', skillSettings)
+end
+
+local function hideOldClientStats()
+    if g_game.getClientVersion() >= 1412 then
+        return
+    end
+    
+    setSkillGroupVisibility('offence', false)
+    setSkillGroupVisibility('defence', false)
+    setSkillGroupVisibility('misc', false)
+    
+    local function hideUnnamedSeparators(widget)
+        if not widget then return end
+        
+        local children = widget:getChildren()
+        for _, child in pairs(children) do
+            if child:getClassName() == 'HorizontalSeparator' and (not child:getId() or child:getId() == '') then
+                child:setVisible(false)
+            elseif child:getClassName() == 'UIWidget' and (not child:getId() or child:getId() == '') then
+                local childHeight = child:getHeight()
+                local childChildrenCount = #child:getChildren()
+                if childHeight <= 15 and childChildrenCount == 0 then
+                    child:setVisible(false)
+                end
+            end
+            hideUnnamedSeparators(child)
+        end
+    end
+    
+    hideUnnamedSeparators(skillsWindow)
+end
+
+local function hideMenuOptionsForOldClients(menu)
+    if not g_game.getFeature(GameOfflineTrainingTime) then
+        local offlineTrainingOption = menu:getChildById('showOfflineTraining')
+        if offlineTrainingOption then
+            offlineTrainingOption:setVisible(false)
+        end
+    end
+    
+    if g_game.getClientVersion() < 1412 then
+        local statsOptions = {'showOffenceStats', 'showDefenceStats', 'showMiscStats'}
+        for _, optionId in pairs(statsOptions) do
+            local option = menu:getChildById(optionId)
+            if option then
+                option:setVisible(false)
+            end
+        end
+    end
+end
+
+function showSkillsContextMenu(widget, mousePos, mouseButton)
+    local menu = g_ui.createWidget('SkillsListSubMenu')
+    menu:setGameMenu(true)
+
+    hideMenuOptionsForOldClients(menu)
+
+    for _, choice in ipairs(menu:getChildren()) do
+        local choiceId = choice:getId()
+        if choiceId and choiceId ~= 'HorizontalSeparator' then
+            if choiceId == 'resetExperienceCounter' then
+                choice.onClick = function()
+                    onSkillsMenuAction(choiceId)
+                    menu:destroy()
+                end
+            else
+                local currentState = getSkillVisibilityState(choiceId)
+                choice:setChecked(currentState)
+                choice.onCheckChange = function()
+                    onSkillsMenuAction(choiceId)
+                    menu:destroy()
+                end
+            end
+        end
+    end
+    
+    local buttonPos = widget:getPosition()
+    local buttonSize = widget:getSize()
+    local menuWidth = menu:getWidth()
+    
+    local buttonCenterX = buttonPos.x + buttonSize.width / 2
+    local buttonCenterY = buttonPos.y + buttonSize.height / 2
+    
+    local menuX = buttonCenterX - menuWidth
+    local menuY = buttonCenterY
+    
+    menu:display({x = menuX, y = menuY})
+    return true
+end
+
+function onSkillsMenuAction(actionId)
+    if actionId == 'resetExperienceCounter' then
+        resetExperienceCounter()
+    elseif actionId == 'showOffenceStats' then
+        toggleGroupVisibility('offence')
+    elseif actionId == 'showDefenceStats' then
+        toggleGroupVisibility('defence')
+    elseif actionId == 'showMiscStats' then
+        toggleGroupVisibility('misc')
+    elseif actionId == 'showAllSkillBars' then
+        toggleAllSkillBars()
+    else
+        local skillMap = {
+            showLevel = 'level',
+            showStamina = 'stamina',
+            showOfflineTraining = 'offlineTraining',
+            showMagic = 'magiclevel',
+            showFist = 'skillId0',
+            showClub = 'skillId1',
+            showSword = 'skillId2',
+            showAxe = 'skillId3',
+            showDistance = 'skillId4',
+            showShielding = 'skillId5',
+            showFishing = 'skillId6'
+        }
+        local skillId = skillMap[actionId]
+        if skillId then
+            toggleSkillProgressBar(skillId)
+        end
+    end
+end
+
+function getSkillVisibilityState(actionId)
+    local skillMap = {
+        showLevel = 'level',
+        showStamina = 'stamina',
+        showOfflineTraining = 'offlineTraining',
+        showMagic = 'magiclevel',
+        showFist = 'skillId0',
+        showClub = 'skillId1',
+        showSword = 'skillId2',
+        showAxe = 'skillId3',
+        showDistance = 'skillId4',
+        showShielding = 'skillId5',
+        showFishing = 'skillId6'
+    }
+    
+    local groupMap = {
+        showOffenceStats = 'offence',
+        showDefenceStats = 'defence',
+        showMiscStats = 'misc'
+    }
+    
+    local skillId = skillMap[actionId]
+    if skillId then
+        return isSkillPercentBarVisible(skillId)
+    end
+    
+    local groupName = groupMap[actionId]
+    if groupName then
+        return areStatsVisible(groupName)
+    end
+    
+    if actionId == 'showAllSkillBars' then
+        return areAllSkillBarsVisible()
+    end
+    
+    return false
+end
+
+function isSkillVisible(skillId)
+    local skill = skillsWindow:recursiveGetChildById(skillId)
+    return skill and skill:isVisible()
+end
+
+function isSkillPercentBarVisible(skillId)
+    local skill = skillsWindow:recursiveGetChildById(skillId)
+    if skill then
+        local percentBar = skill:getChildById('percent')
+        return percentBar and percentBar:isVisible()
+    end
+    return false
+end
+
+function toggleSkillProgressBar(skillId)
+    local skill = skillsWindow:recursiveGetChildById(skillId)
+    if skill then
+        local percentBar = skill:getChildById('percent')
+        local skillIcon = skill:getChildById('icon')
+        
+        if percentBar then
+            local isVisible = percentBar:isVisible()
+            percentBar:setVisible(not isVisible)
+            
+            -- Also toggle skill icon if it exists
+            if skillIcon then
+                skillIcon:setVisible(not isVisible)
+            end
+            
+            -- Adjust skill button height
+            if not isVisible then
+                skill:setHeight(21) -- Show progress bar
+            else
+                skill:setHeight(15) -- Hide progress bar
+            end
+            
+            -- Save the setting
+            local char = g_game.getCharacterName()
+            if not skillSettings[char] then
+                skillSettings[char] = {}
+            end
+            skillSettings[char][skillId] = isVisible and 1 or 0  -- 1 = hidden, 0 = visible
+            g_settings.setNode('skills-hide', skillSettings)
+        end
+    end
+end
+
+function toggleSkillVisibility(skillId)
+    local skill = skillsWindow:recursiveGetChildById(skillId)
+    if skill then
+        local percentBar = skill:getChildById('percent')
+        local skillIcon = skill:getChildById('icon')
+        
+        if percentBar then
+            local isVisible = percentBar:isVisible()
+            percentBar:setVisible(not isVisible)
+            
+            -- Also toggle skill icon if it exists
+            if skillIcon then
+                skillIcon:setVisible(not isVisible)
+            end
+            
+            -- Adjust skill button height
+            if not isVisible then
+                skill:setHeight(21) -- Show progress bar
+            else
+                skill:setHeight(15) -- Hide progress bar
+            end
+            
+            -- Save the setting
+            local char = g_game.getCharacterName()
+            if not skillSettings[char] then
+                skillSettings[char] = {}
+            end
+            skillSettings[char][skillId] = isVisible and 1 or 0  -- 1 = hidden, 0 = visible
+            g_settings.setNode('skills-hide', skillSettings)
+        end
+    end
+end
+
+function resetExperienceCounter()
+    local player = g_game.getLocalPlayer()
+    if player then
+        modules.game_textmessage.displayGameMessage('Experience counter has been reset.')
+    end
+end
+
+function areOffenceStatsVisible()
+    return areStatsVisible('offence')
+end
+
+function toggleOffenceStatsVisibility()
+    toggleGroupVisibility('offence')
+end
+
+function areDefenceStatsVisible()
+    return areStatsVisible('defence')
+end
+
+function toggleDefenceStatsVisibility()
+    toggleGroupVisibility('defence')
+end
+
+function areMiscStatsVisible()
+    return areStatsVisible('misc')
+end
+
+function toggleMiscStatsVisibility()
+    toggleGroupVisibility('misc')
+end
+
+function areAllSkillBarsVisible()
+    for _, skillId in pairs(SKILL_GROUPS.individual) do
+        local skill = skillsWindow:recursiveGetChildById(skillId)
+        if skill then
+            local percentBar = skill:getChildById('percent')
+            if percentBar and not percentBar:isVisible() then
+                return false
+            end
+        end
+    end
+    return true
+end
+
+function toggleAllSkillBars()
+    local shouldShow = not areAllSkillBarsVisible()
+    
+    for _, skillId in pairs(SKILL_GROUPS.individual) do
+        local skill = skillsWindow:recursiveGetChildById(skillId)
+        if skill then
+            local percentBar = skill:getChildById('percent')
+            local skillIcon = skill:getChildById('icon')
+            
+            if percentBar then
+                percentBar:setVisible(shouldShow)
+                
+                if skillIcon then
+                    skillIcon:setVisible(shouldShow)
+                end
+                
+                skill:setHeight(shouldShow and 21 or 15)
+                
+                local char = g_game.getCharacterName()
+                if not skillSettings[char] then
+                    skillSettings[char] = {}
+                end
+                skillSettings[char][skillId] = shouldShow and 0 or 1
+            end
+        end
+    end
+    
+    g_settings.setNode('skills-hide', skillSettings)
 end
 
 function expForLevel(level)
@@ -164,8 +577,11 @@ end
 function setSkillTooltip(id, value)
     local skill = skillsWindow:recursiveGetChildById(id)
     if skill then
-        local widget = skill:getChildById('value')
-        widget:setTooltip(value)
+        if value then
+            skill:setTooltip(value)
+        else
+            skill:removeTooltip()
+        end
     end
 end
 
@@ -236,25 +652,69 @@ end
 function update()
     local offlineTraining = skillsWindow:recursiveGetChildById('offlineTraining')
     if not g_game.getFeature(GameOfflineTrainingTime) then
-        offlineTraining:hide()
+        offlineTraining:setVisible(false)
     else
         offlineTraining:show()
     end
 
     local regenerationTime = skillsWindow:recursiveGetChildById('regenerationTime')
     if not g_game.getFeature(GamePlayerRegenerationTime) then
-        regenerationTime:hide()
+        regenerationTime:setVisible(false)
     else
         regenerationTime:show()
+    end
+    local xpBoostButton = skillsWindow:recursiveGetChildById('xpBoostButton')
+    local xpGainRate = skillsWindow:recursiveGetChildById('xpGainRate')
+    if g_game.getFeature(GameExperienceBonus) then
+        xpBoostButton:show()
+        xpGainRate:show()
+    else
+        xpBoostButton:setVisible(false)
+        xpGainRate:setVisible(false)
     end
 end
 
 function online()
-    skillsWindow:setupOnStart() -- load character window configuration
+    skillsWindow:setupOnStart()
+    setupUIButtons()
     refresh()
+    
     if g_game.getFeature(GameEnterGameShowAppearance) then
         skillsWindow:recursiveGetChildById('regenerationTime'):getChildByIndex(1):setText('Food')
+        skillsWindow:recursiveGetChildById('experience'):getChildByIndex(1):setText('XP')
     end
+
+    local newWindowButton = skillsWindow:recursiveGetChildById('newWindowButton')
+    if g_game.getClientVersion() < 1310 and newWindowButton then
+        newWindowButton:setVisible(false)
+        local sepForge = skillsWindow:recursiveGetChildById('separadorOnForgeBonusesChange')
+        if sepForge and sepForge:isVisible() then
+            sepForge:setVisible(false)
+        end
+        local sepDefense = skillsWindow:recursiveGetChildById('separadorOnDefenseInfoChange')
+        if sepDefense and sepDefense:isVisible() then
+            sepDefense:setVisible(false)
+        end
+        local sepOffence = skillsWindow:recursiveGetChildById('separadorOnOffenceInfoChange')
+        if sepOffence and sepOffence:isVisible() then
+            sepOffence:setVisible(false)
+        end
+
+        local lockButton = skillsWindow:recursiveGetChildById('lockButton')
+        local contextMenuButton = skillsWindow:recursiveGetChildById('contextMenuButton')
+        
+        if lockButton and contextMenuButton then
+            lockButton:breakAnchors()
+            lockButton:addAnchor(AnchorTop, contextMenuButton:getId(), AnchorTop)
+            lockButton:addAnchor(AnchorRight, contextMenuButton:getId(), AnchorLeft)
+            lockButton:setMarginRight(2)
+            lockButton:setMarginTop(0)
+        end
+    end
+    
+    scheduleEvent(function() 
+        loadSkillsVisibilitySettings() 
+    end, 100)
 end
 
 function refresh()
@@ -304,10 +764,70 @@ function refresh()
 
     update()
     updateHeight()
+    hideOldClientStats()
+    loadSkillsVisibilitySettings()
+    -- Always show default Offence, Defence, and Misc stats when loading window
+    onFlatDamageHealingChange(player, statsCache.flatDamageHealing)
+    onAttackInfoChange(player, statsCache.attackValue, statsCache.attackElement)
+    onConvertedDamageChange(player, statsCache.convertedDamage, statsCache.convertedElement)
+    onImbuementsChange(player, statsCache.lifeLeech, statsCache.manaLeech, statsCache.critChance, statsCache.critDamage, statsCache.onslaught)
+    onDefenseInfoChange(player, statsCache.defense, statsCache.armor, statsCache.mitigation, statsCache.dodge, statsCache.damageReflection)
+    onCombatAbsorbValuesChange(player, statsCache.combatAbsorbValues)
+    onForgeBonusesChange(player, statsCache.momentum, statsCache.transcendence, statsCache.amplification)
+end
+
+function loadSkillsVisibilitySettings()
+    local char = g_game.getCharacterName()
+    if not char or not skillSettings[char] then
+        return
+    end
+    
+    local settings = skillSettings[char]
+    
+    for _, skillId in pairs(SKILL_GROUPS.individual) do
+        if settings[skillId] ~= nil then
+            local skill = skillsWindow:recursiveGetChildById(skillId)
+            if skill then
+                local percentBar = skill:getChildById('percent')
+                local skillIcon = skill:getChildById('icon')
+                
+                if percentBar then
+                    local shouldShow = settings[skillId] ~= 1
+                    percentBar:setVisible(shouldShow)
+                    
+                    if skillIcon then
+                        skillIcon:setVisible(shouldShow)
+                    end
+                    
+                    skill:setHeight(shouldShow and 21 or 15)
+                end
+            end
+        end
+    end
+    
+    if g_game.getClientVersion() >= 1412 then
+        local groupSettings = {
+            {name = 'offence', key = 'offenceStats_visible'},
+            {name = 'defence', key = 'defenceStats_visible'},
+            {name = 'misc', key = 'miscStats_visible'}
+        }
+        
+        for _, group in pairs(groupSettings) do
+            if settings[group.key] == nil then
+                settings[group.key] = true
+                g_settings.setNode('skills-hide', skillSettings)
+            end
+            
+            if settings[group.key] ~= nil then
+                setSkillGroupVisibility(group.name, settings[group.key])
+            end
+        end
+    end
 end
 
 function updateHeight()
     local maximumHeight = 8 -- margin top and bottom
+    local minimumHeight = 80 -- ensure minimum height is maintained
 
     if g_game.isOnline() then
         local char = g_game.getCharacterName()
@@ -333,7 +853,7 @@ function updateHeight()
     end
 
     local contentsPanel = skillsWindow:getChildById('contentsPanel')
-    skillsWindow:setContentMinimumHeight(44)
+    skillsWindow:setContentMinimumHeight(math.max(minimumHeight, 44))
     skillsWindow:setContentMaximumHeight(maximumHeight)
 end
 
@@ -356,9 +876,10 @@ function toggle()
             if not panel then
                 return
             end
-
             panel:addChild(skillsWindow)
         end
+        
+        setupUIButtons()
         skillsWindow:open()
         skillsButton:setOn(true)
         updateHeight()
@@ -373,15 +894,25 @@ function checkExpSpeed()
 
     local currentExp = player:getExperience()
     local currentTime = g_clock.seconds()
-    if player.lastExps ~= nil then
-        player.expSpeed = (currentExp - player.lastExps[1][1]) / (currentTime - player.lastExps[1][2])
-        onLevelChange(player, player:getLevel(), player:getLevelPercent())
-    else
+    
+    if player.lastExps == nil then
         player.lastExps = {}
     end
+    
     table.insert(player.lastExps, {currentExp, currentTime})
     if #player.lastExps > 30 then
         table.remove(player.lastExps, 1)
+    end
+    
+    if #player.lastExps >= 2 then
+        local oldestEntry = player.lastExps[1]
+        local expGained = currentExp - oldestEntry[1]
+        local timeElapsed = currentTime - oldestEntry[2]
+        
+        player.expSpeed = timeElapsed > 0 and (expGained / timeElapsed) or 0
+        
+        onLevelChange(player, player:getLevel(), player:getLevelPercent())
+        onExperienceChange(player, player:getExperience())
     end
 end
 
@@ -425,26 +956,43 @@ function showPercentBar(button, show)
     end
 end
 
+local function getExperienceTooltip(localPlayer)
+    local currentLevel = localPlayer:getLevel()
+    local currentExp = localPlayer:getExperience()
+    local nextLevelExp = expForLevel(currentLevel + 1)
+    local expNeeded = nextLevelExp - currentExp
+    
+    if expNeeded <= 0 then
+        return nil
+    end
+    
+    if localPlayer.expSpeed and localPlayer.expSpeed > 0 then
+        local expPerHour = math.floor(localPlayer.expSpeed * 3600)
+        local hoursLeft = expNeeded / expPerHour
+        local minutesLeft = math.floor((hoursLeft - math.floor(hoursLeft)) * 60)
+        hoursLeft = math.floor(hoursLeft)
+        return tr('%s of experience per hour', comma_value(expPerHour)) .. '\n' ..
+               tr('Next level in %d hours and %d minutes', hoursLeft, minutesLeft)
+    end
+    
+    local states = localPlayer:getStates()
+    local isInBattle = bit.band(states, PlayerStates.Swords) > 0 or bit.band(states, PlayerStates.RedSwords) > 0
+    
+    if not isInBattle then
+        return tr('%s XP for next level', comma_value(expNeeded))
+    end
+    
+    return nil
+end
+
 function onExperienceChange(localPlayer, value)
     setSkillValue('experience', comma_value(value))
+    setSkillTooltip('experience', getExperienceTooltip(localPlayer))
 end
 
 function onLevelChange(localPlayer, value, percent)
     setSkillValue('level', comma_value(value))
-    local text = tr('You have %s percent to go', 100 - percent) .. '\n' ..
-                     tr('%s of experience left', expToAdvance(localPlayer:getLevel(), localPlayer:getExperience()))
-
-    if localPlayer.expSpeed ~= nil then
-        local expPerHour = math.floor(localPlayer.expSpeed * 3600)
-        if expPerHour > 0 then
-            local nextLevelExp = expForLevel(localPlayer:getLevel() + 1)
-            local hoursLeft = (nextLevelExp - localPlayer:getExperience()) / expPerHour
-            local minutesLeft = math.floor((hoursLeft - math.floor(hoursLeft)) * 60)
-            hoursLeft = math.floor(hoursLeft)
-            text = text .. '\n' .. tr('%s of experience per hour', comma_value(expPerHour))
-            text = text .. '\n' .. tr('Next level in %d hours and %d minutes', hoursLeft, minutesLeft)
-        end
-    end
+    local text = tr('You have %s percent to go', 100 - percent)
 
     setSkillPercent('level', percent, text)
 end
@@ -472,54 +1020,64 @@ function onTotalCapacityChange(localPlayer, totalCapacity)
     checkAlert('capacity', localPlayer:getFreeCapacity(), totalCapacity, 20)
 end
 
+local function formatTime(minutes)
+    local hours = math.floor(minutes / 60)
+    local mins = minutes % 60
+    if mins < 10 then
+        mins = '0' .. mins
+    end
+    return hours .. ':' .. mins
+end
+
+local function getStaminaTooltip(hours, minutes, stamina)
+    local timeText = tr('You have %s hours and %s minutes left', hours, minutes)
+    
+    if stamina > 2400 and g_game.getClientVersion() >= 1038 then
+        local player = g_game.getLocalPlayer()
+        if player:isPremium() then
+            return timeText .. '\n' .. tr('Now you will gain 50%% more experience')
+        else
+            return timeText .. '\n' .. tr('You will not gain 50%% more experience because you aren\'t premium player, now you receive only 1x experience points')
+        end
+    elseif stamina >= 2400 and g_game.getClientVersion() < 1038 then
+        return timeText .. '\n' .. tr('If you are premium player, you will gain 50%% more experience')
+    elseif stamina < 2400 and stamina > 840 then
+        return timeText
+    elseif stamina <= 840 and stamina > 0 then
+        return timeText .. '\n' .. tr('You gain only 50%% experience and you don\'t may gain loot from monsters')
+    elseif stamina == 0 then
+        return timeText .. '\n' .. tr('You don\'t may receive experience and loot from monsters')
+    end
+    return timeText
+end
+
 function onStaminaChange(localPlayer, stamina)
     local hours = math.floor(stamina / 60)
     local minutes = stamina % 60
-    if minutes < 10 then
-        minutes = '0' .. minutes
-    end
-    local percent = math.floor(100 * stamina / (42 * 60)) -- max is 42 hours --TODO not in all client versions
-
-    setSkillValue('stamina', hours .. ':' .. minutes)
-
-    -- TODO not all client versions have premium time
-    if stamina > 2400 and g_game.getClientVersion() >= 1038 and localPlayer:isPremium() then
-        local text = tr('You have %s hours and %s minutes left', hours, minutes) .. '\n' ..
-                         tr('Now you will gain 50%% more experience')
-        setSkillPercent('stamina', percent, text, 'green')
-    elseif stamina > 2400 and g_game.getClientVersion() >= 1038 and not localPlayer:isPremium() then
-        local text = tr('You have %s hours and %s minutes left', hours, minutes) .. '\n' .. tr(
-                         'You will not gain 50%% more experience because you aren\'t premium player, now you receive only 1x experience points')
-        setSkillPercent('stamina', percent, text, '#89F013')
-    elseif stamina >= 2400 and g_game.getClientVersion() < 1038 then
-        local text = tr('You have %s hours and %s minutes left', hours, minutes) .. '\n' ..
-                         tr('If you are premium player, you will gain 50%% more experience')
-        setSkillPercent('stamina', percent, text, 'green')
-    elseif stamina < 2400 and stamina > 840 then
-        setSkillPercent('stamina', percent, tr('You have %s hours and %s minutes left', hours, minutes), 'orange')
+    local percent = math.floor(100 * stamina / (42 * 60))
+    
+    setSkillValue('stamina', formatTime(stamina))
+    
+    local tooltip = getStaminaTooltip(hours, minutes, stamina)
+    local color = 'orange'
+    
+    if stamina > 2400 then
+        color = g_game.getClientVersion() >= 1038 and localPlayer:isPremium() and 'green' or '#89F013'
     elseif stamina <= 840 and stamina > 0 then
-        local text = tr('You have %s hours and %s minutes left', hours, minutes) .. '\n' ..
-                         tr('You gain only 50%% experience and you don\'t may gain loot from monsters')
-        setSkillPercent('stamina', percent, text, 'red')
+        color = 'red'
     elseif stamina == 0 then
-        local text = tr('You have %s hours and %s minutes left', hours, minutes) .. '\n' ..
-                         tr('You don\'t may receive experience and loot from monsters')
-        setSkillPercent('stamina', percent, text, 'black')
+        color = 'black'
     end
+    
+    setSkillPercent('stamina', percent, tooltip, color)
 end
 
 function onOfflineTrainingChange(localPlayer, offlineTrainingTime)
     if not g_game.getFeature(GameOfflineTrainingTime) then
         return
     end
-    local hours = math.floor(offlineTrainingTime / 60)
-    local minutes = offlineTrainingTime % 60
-    if minutes < 10 then
-        minutes = '0' .. minutes
-    end
-    local percent = 100 * offlineTrainingTime / (12 * 60) -- max is 12 hours
-
-    setSkillValue('offlineTraining', hours .. ':' .. minutes)
+    local percent = 100 * offlineTrainingTime / (12 * 60)
+    setSkillValue('offlineTraining', formatTime(offlineTrainingTime))
     setSkillPercent('offlineTraining', percent, tr('You have %s percent', percent))
 end
 

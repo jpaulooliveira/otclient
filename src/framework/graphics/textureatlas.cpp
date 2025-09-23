@@ -3,26 +3,27 @@
 #include "graphics.h"
 #include "framebuffer.h"
 
-TextureAtlas::TextureAtlas(Fw::TextureAtlasType type) : TextureAtlas(type, g_graphics.getMaxTextureSize(), g_graphics.getMaxTextureSize()) {}
+constexpr uint8_t SMOOTH_PADDING = 2;
 
-TextureAtlas::TextureAtlas(Fw::TextureAtlasType type, int width, int height) :
+TextureAtlas::TextureAtlas(Fw::TextureAtlasType type, int size, bool smoothSupport) :
     m_type(type),
-    m_atlasWidth(std::min<int>(width, 16384)),
-    m_atlasHeight(std::min<int>(height, 16384)) {
-    createNewLayer();
+    m_size({ std::min<int>(size, 8192) }) {
+    createNewLayer(false);
+    if (smoothSupport)
+        createNewLayer(true);
 }
 
-void TextureAtlas::removeTexture(uint32_t id) {
+void TextureAtlas::removeTexture(uint32_t id, bool smooth) {
     auto it = m_texturesCached.find(id);
     if (it == m_texturesCached.end()) {
         return;
     }
 
-    auto& info = it->second;
+    it->second->enabled = false;
 
-    auto sizeKey = std::make_pair(info.width, info.height);
-    m_inactiveTextures.try_emplace(sizeKey, std::vector<TextureInfo>())
-        .first->second.emplace_back(std::move(info));
+    auto sizeKey = std::make_pair(it->second->width, it->second->height);
+    m_filterGroups[smooth].inactiveTextures.try_emplace(sizeKey, std::vector<std::unique_ptr<AtlasRegion>>())
+        .first->second.emplace_back(std::move(it->second));
     m_texturesCached.erase(it);
 }
 
@@ -31,83 +32,113 @@ void TextureAtlas::addTexture(const TexturePtr& texture) {
     const auto width = texture->getWidth();
     const auto height = texture->getHeight();
 
-    if (width <= 0 || height <= 0 || width >= m_atlasWidth || height >= m_atlasHeight) {
+    if (width <= 0 || height <= 0 || width >= m_size.width() || height >= m_size.height()) {
         return; // don't cache
     }
 
+    auto& filterGroup = m_filterGroups[texture->isSmooth()];
+
     auto sizeKey = std::make_pair(width, height);
-    auto it = m_inactiveTextures.find(sizeKey);
-    if (it != m_inactiveTextures.end()) {
+    auto it = filterGroup.inactiveTextures.find(sizeKey);
+    if (it != filterGroup.inactiveTextures.end()) {
         auto& texList = it->second;
         if (!texList.empty()) {
-            TextureInfo tex = std::move(texList.back());
+            auto tex = std::move(texList.back());
             texList.pop_back();
 
-            tex.textureID = texture->getId();
-            tex.transformMatrixId = texture->getTransformMatrixId();
+            tex->textureID = texture->getId();
+            tex->transformMatrixId = texture->getTransformMatrixId();
+            texture->m_atlas[m_type] = tex.get();
 
-            texture->m_atlas[m_type].x = tex.x;
-            texture->m_atlas[m_type].y = tex.y;
-            texture->m_atlas[m_type].z = tex.layer;
-
-            m_layers[tex.layer].textures.emplace_back(tex);
+            filterGroup.layers[tex->layer].textures.emplace_back(tex.get());
             m_texturesCached.emplace(textureID, std::move(tex));
 
             return;
         }
     }
 
-    auto bestRegionOpt = findBestRegion(width, height);
+    const int pad = texture->isSmooth() ? SMOOTH_PADDING : 0;
+    const int allocW = width + (pad * 2);
+    const int allocH = height + (pad * 2);
+
+    auto bestRegionOpt = findBestRegion(allocW, allocH, texture->isSmooth());
     if (!bestRegionOpt.has_value()) {
-        createNewLayer();
+        createNewLayer(texture->isSmooth());
         return addTexture(texture);
     }
 
     FreeRegion region = bestRegionOpt.value();
-    splitRegion(region, width, height);
+    splitRegion(region, allocW, allocH, texture->isSmooth());
 
-    auto info = TextureInfo{
-       .textureID = textureID,
-       .x = texture->m_atlas[m_type].x = region.x,
-       .y = texture->m_atlas[m_type].y = region.y,
-       .layer = texture->m_atlas[m_type].z = region.layer,
-       .width = static_cast<int16_t>(width),
-       .height = static_cast<int16_t>(height),
-       .transformMatrixId = texture->getTransformMatrixId()
-    };
+    auto info = std::make_unique<AtlasRegion>(
+        textureID,
+        region.x + pad,
+        region.y + pad,
+        region.layer,
+        static_cast<int16_t>(width),
+        static_cast<int16_t>(height),
+        texture->getTransformMatrixId(),
+        m_filterGroups[texture->isSmooth()].layers[region.layer].framebuffer->getTexture().get()
+    );
 
-    m_layers[region.layer].textures.emplace_back(info);
+    texture->m_atlas[m_type] = info.get();
+    filterGroup.layers[region.layer].textures.emplace_back(info.get());
     m_texturesCached.emplace(textureID, std::move(info));
 }
 
-void TextureAtlas::createNewLayer() {
-    auto fbo = std::make_shared<FrameBuffer>();
-    fbo->resize({ m_atlasWidth, m_atlasHeight });
+void TextureAtlas::createNewLayer(bool smooth) {
+    auto fbo = std::make_unique<FrameBuffer>();
     fbo->setAutoClear(false);
     fbo->setAutoResetState(true);
-    fbo->getTexture()->setSmooth(false);
+    fbo->setSmooth(smooth);
+    fbo->resize(m_size);
 
-    m_layers.emplace_back(fbo);
-    FreeRegion newRegion = { 0, 0, m_atlasWidth, m_atlasHeight, static_cast<int>(m_layers.size()) - 1 };
-    m_freeRegions.insert(newRegion);
-    m_freeRegionsBySize[m_atlasWidth * m_atlasHeight].insert(newRegion);
+    FreeRegion newRegion = { 0, 0, m_size.width(), m_size.height(), static_cast<int>(m_filterGroups[smooth].layers.size()) };
+
+    m_filterGroups[smooth].layers.emplace_back(std::move(fbo));
+    m_filterGroups[smooth].freeRegions.insert(newRegion);
+    m_filterGroups[smooth].freeRegionsBySize[m_size.width() * m_size.height()].insert(newRegion);
 }
 
 void TextureAtlas::flush() {
     static CoordsBuffer buffer;
-    for (auto& layer : m_layers) {
-        if (!layer.textures.empty()) {
-            layer.framebuffer->bind();
-            for (const auto& texture : layer.textures) {
-                g_painter->clearRect(Color::alpha, { texture.x, texture.y, Size{texture.width, texture.height} });
+    for (auto i = -1; ++i < AtlasFilter::ATLAS_FILTER_COUNT;) {
+        auto& group = m_filterGroups[i];
 
-                buffer.clear();
-                buffer.addRect({ texture.x, texture.y, Size{texture.width, texture.height} }, { 0,0, texture.width, texture.height });
-                g_painter->setTexture(texture.textureID, texture.transformMatrixId);
-                g_painter->drawCoords(buffer, DrawMode::TRIANGLE_STRIP);
+        const int pad = i == AtlasFilter::ATLAS_FILTER_LINEAR ? SMOOTH_PADDING : 0;
+
+        for (auto& layer : group.layers) {
+            if (!layer.textures.empty()) {
+                layer.framebuffer->bind();
+                glDisable(GL_BLEND);
+                for (const auto& texture : layer.textures) {
+                    const int x = texture->x;
+                    const int y = texture->y;
+                    const int w = texture->width;
+                    const int h = texture->height;
+
+                    const Rect dest = { x - pad, y - pad, Size{ w + pad * 2, h + pad * 2 } };
+
+                    g_painter->clearRect(Color::alpha, dest);
+
+                    if (pad > 0) {
+                        buffer.clear();
+                        buffer.addRect(dest, { -pad, -pad, w + pad * 2, h + pad * 2 });
+                        g_painter->setTexture(texture->textureID, texture->transformMatrixId);
+                        g_painter->drawCoords(buffer, DrawMode::TRIANGLE_STRIP);
+                    }
+
+                    buffer.clear();
+                    buffer.addRect({ x, y, Size{ w, h } }, { 0, 0, w, h });
+                    g_painter->setTexture(texture->textureID, texture->transformMatrixId);
+                    g_painter->drawCoords(buffer, DrawMode::TRIANGLE_STRIP);
+
+                    texture->enabled.store(true, std::memory_order_release);
+                }
+                glEnable(GL_BLEND);
+                layer.textures.clear();
+                layer.framebuffer->release();
             }
-            layer.textures.clear();
-            layer.framebuffer->release();
         }
     }
 }
