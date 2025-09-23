@@ -222,6 +222,27 @@ private:
     double m_transcendence{ 0 };
     double m_amplification{ 0 };
 
+    uint8_t m_attackElement{ 0 };
+    uint8_t m_convertedElement{ 0 };
+
+    uint16_t m_flatDamageHealing{ 0 };
+    uint16_t m_attackValue{ 0 };
+    uint16_t m_defense{ 0 };
+    uint16_t m_armor{ 0 };
+    uint16_t m_damageReflection{ 0 };
+
+    double m_convertedDamage{ 0 };
+    double m_lifeLeech{ 0 };
+    double m_manaLeech{ 0 };
+    double m_critChance{ 0 };
+    double m_critDamage{ 0 };
+    double m_onslaught{ 0 };
+    double m_mitigation{ 0 };
+    double m_dodge{ 0 };
+    double m_momentum{ 0 };
+    double m_transcendence{ 0 };
+    double m_amplification{ 0 };
+
     friend class Game;
     friend class Creature;
 };
