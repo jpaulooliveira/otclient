@@ -4181,7 +4181,7 @@ void ProtocolGame::parseVirtue(const InputMessagePtr& msg) { // @note: improve n
             break;
         }
         default:
-            g_logger.error(stdext::format("Unknown virtue subtype: %d", subtype));
+            g_logger.error("Unknown virtue subtype:");
             break;
     }
 }
